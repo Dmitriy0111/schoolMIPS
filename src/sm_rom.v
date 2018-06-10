@@ -19,7 +19,7 @@ module sm_rom
     assign rd = rom [a];
 
     initial begin
-        $readmemh ("program.hex", rom);
+        $readmemh ("../program.hex", rom);
     end
 
 endmodule
