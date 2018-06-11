@@ -94,6 +94,7 @@ module ahb_matrix
         .HREADYOUT    ( HREADYOUT[2] ),
         .HRESP        ( RESP     [2] ),
         .eth_clk      ( eth_clk      ),
+        .eth_rstn     ( HRESETn      ),
         .Txp          ( eth_txp      ),
         .Txn          ( eth_txn      ),
         .Led_Tx       ( eth_tx_led   )

@@ -142,14 +142,18 @@ module sm_eth_mem
     reg        c_d;
     reg  [7:0] eth_mem [127:0];
     reg  [7:0] com_reg ;
+    wire mem_wr;
+    wire reg_wr;
 
+    assign mem_wr = bWrite & ( ~ c_d ) & bSel ;
+    assign reg_wr = bWrite & (   c_d ) & bSel ;
     assign bRData = c_d ? eth_mem[ bAddr ] : com_reg ;
 
     always @ ( posedge HCLK )
     begin
-        if ( bWrite & c_d)
-            eth_mem[ bAddr ] <= bWData[7:0] ;
-        if ( bWrite & ( ~ c_d ) )
+        if ( mem_wr )
+            eth_mem[ bAddr[8:2] ] <= bWData[7:0] ;
+        if ( reg_wr )
             com_reg <= bWData[7:0] ;
     end
 
@@ -162,7 +166,8 @@ module sm_eth_mem
     
     initial
     begin
-        c_d = 8'h00 ;
+        com_reg = 8'h00 ;
+        c_d = 1'b0 ;
         $readmemh("../eth_frame.hex",eth_mem) ;
     end
 
@@ -172,11 +177,11 @@ module sm_eth
 (
     input             eth_clk,
     input             eth_rstn,
-    input             bSel,
+    /*input             bSel,
     input      [31:0] bAddr,
     input             bWrite,
     input      [31:0] bWData,
-    output reg [31:0] bRData,
+    output reg [31:0] bRData,*/
     output            Txp,
     output            Txn,
     output            Led_Tx
