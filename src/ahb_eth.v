@@ -71,6 +71,7 @@ module ahb_eth
     wire [7:0] mem2eth;
 
     wire [7:0] com_out ;
+    wire       t_complete;
 
     sm_eth eth
     (
@@ -81,7 +82,8 @@ module ahb_eth
         .Led_Tx     ( Led_Tx        ),
         .com_out    ( com_out       ),
         .mem_rd     ( mem_rd        ),
-        .eth_in     ( mem2eth       )
+        .eth_in     ( mem2eth       ),
+        .t_complete ( t_complete    )
     );
 
     
@@ -97,7 +99,8 @@ module ahb_eth
         .bRData     ( pm_rd         ),
         .com_out    ( com_out       ),
         .mem_rd     ( mem_rd        ),
-        .data_out   ( mem2eth       )
+        .data_out   ( mem2eth       ),
+        .t_complete ( t_complete    )
     );
 
 endmodule
@@ -169,6 +172,58 @@ initial
  
 endmodule
 
+module p_reg
+#(
+    parameter data_width=8
+)(
+    input                       clk,
+    input   [data_width-1:0]    rst,
+    input   [data_width-1:0]    data,
+    input                       wr,
+    output  [data_width-1:0]    q
+);
+
+    genvar k;
+    generate 
+    for ( k = 0 ; k < data_width ; k = k + 1 )
+    begin : generate_p_reg
+        p_one_ff p_one_ff_
+        (
+            .clk    ( clk     ),
+            .rst    ( rst[k]  ),
+            .data   ( data[k] ),
+            .wr     ( wr      ),
+            .q      ( q[k]    )
+        );
+    end
+    endgenerate
+
+endmodule
+
+module p_one_ff
+(
+    input       clk,
+    input       rst,
+    input       data,
+    input       wr,
+    output reg  q
+);
+
+    always @( posedge clk or negedge rst )
+    begin
+        if ( ~ rst )
+            q <= 1'b0;
+        else if ( wr )
+            q <= data;
+    end
+
+    initial
+    begin
+        q = 1'b0;
+    end
+
+endmodule
+
 
 module sm_eth_mem
 (
@@ -182,23 +237,33 @@ module sm_eth_mem
     output     [7:0]  com_out,
     input             eth_clk,
     output     [7:0]  data_out,
-    input             mem_rd
+    input             mem_rd,
+    input             t_complete
 );
     reg        c_d;
     reg  [7:0] com_reg ;
     wire mem_wr;
     wire reg_wr;
 
-    assign com_out = com_reg ; 
+    //assign com_out = com_reg ; 
     assign mem_wr = bWrite & (   c_d ) & bSel ;
     assign reg_wr = bWrite & ( ~ c_d ) & bSel ;
-    assign bRData = com_reg ;
+    assign bRData = com_out ;
 
-    always @ ( posedge HCLK )
+    p_reg p_reg_0
+    (
+        .clk    ( HCLK        ),
+        .rst    ( {7'h7f, ~ t_complete }       ),
+        .data   ( bWData[7:0] ),
+        .wr     ( reg_wr      ),
+        .q      ( com_out     )
+    );
+
+    /*always @ ( posedge HCLK )
     begin
         if ( reg_wr )
             com_reg <= bWData[7:0] ;
-    end
+    end*/
 
     always @ (*)
         case(bAddr[3:0])
@@ -242,7 +307,8 @@ module sm_eth
     output            Led_Tx,
     input [7:0]       com_out,
     output            mem_rd,
-    input [7:0]       eth_in
+    input [7:0]       eth_in,
+    output            t_complete
 );
 
 wire clk_20m;
@@ -289,7 +355,8 @@ eth_frame eth_frame_0
     .eth_data_s ( eth_data_s    ),
     .Tx_w       ( Tx_w          ),
     .mem_rd     ( mem_rd        ),
-    .eth_in     ( eth_in        )
+    .eth_in     ( eth_in        ),
+    .t_complete ( t_complete    )
 );
 
 endmodule
@@ -302,7 +369,8 @@ module eth_frame
     output            eth_data_s,
 	output	     	  Tx_w,
     output  reg       mem_rd,
-    input [7:0]       eth_in
+    input [7:0]       eth_in,
+    output  reg       t_complete
 );
 
 localparam eth_frame_length = 'd128 ;
@@ -336,6 +404,7 @@ begin
             Tx_idle <= 1'b0 ;
             Tx      <= 1'b0 ;
             manch   <= 1'b0 ;
+            t_complete <= 1'b0 ;
         end
     else
         case( state )
@@ -344,6 +413,7 @@ begin
                 Tx      <= 1'b0 ;
                 manch   <= 1'b0 ;
 				Tx_idle <= 1'b0 ;
+                t_complete <= 1'b0 ;
                 if( transmit == 1'b1 )
                 begin
                     state        <= BROADCAST_S ;
@@ -377,11 +447,13 @@ begin
             begin
                 mem_rd <= 1'b0;
                 count <= count + 1'b1 ;
+                t_complete <= 1'b1 ;
                 if( count == 3'h5 )
                 begin
                     Tx_idle <= 1'b0 ;
                     count   <= 3'd0 ;
                     state   <= WAIS_S ;
+                    
                 end
             end
         endcase
@@ -396,6 +468,7 @@ begin
     eth_data_reg = 8'h00 ;
     Tx           = 1'b0 ;
     Tx_idle      = 1'b0 ;
+    t_complete   = 1'b0 ;
     $readmemh("../eth_frame.hex",eth_data) ;
 end
 
