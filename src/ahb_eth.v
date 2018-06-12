@@ -72,6 +72,7 @@ module ahb_eth
 
     wire [7:0] com_out ;
     wire       t_complete;
+    wire       b_end;
 
     sm_eth eth
     (
@@ -83,7 +84,8 @@ module ahb_eth
         .com_out    ( com_out       ),
         .mem_rd     ( mem_rd        ),
         .eth_in     ( mem2eth       ),
-        .t_complete ( t_complete    )
+        .t_complete ( t_complete    ),
+        .b_end      ( b_end         )
     );
 
     
@@ -100,7 +102,8 @@ module ahb_eth
         .com_out    ( com_out       ),
         .mem_rd     ( mem_rd        ),
         .data_out   ( mem2eth       ),
-        .t_complete ( t_complete    )
+        .t_complete ( t_complete    ),
+        .b_end      ( b_end         )
     );
 
 endmodule
@@ -136,6 +139,7 @@ always @(posedge a_clk) begin
     begin
         a_addr <= 8'h08 ;
         a_clr_com <= 1'b1 ;
+        addr_count <= 8'h08 ;
     end
     if(a_wr) begin
         a_addr <= a_addr + 1'b1;
@@ -247,7 +251,8 @@ module sm_eth_mem
     input             eth_clk,
     output     [7:0]  data_out,
     input             mem_rd,
-    input             t_complete
+    input             t_complete,
+    output            b_end
 );
     reg        c_d;
     reg  [7:0] com_reg ;
@@ -300,7 +305,7 @@ module sm_eth_mem
         .b_clk      ( eth_clk       ),
         .b_rd       ( mem_rd        ),
         .b_dout     ( data_out      ),
-        .b_end      (               )
+        .b_end      ( b_end         )
     );
     
     initial
@@ -321,7 +326,8 @@ module sm_eth
     input [7:0]       com_out,
     output            mem_rd,
     input [7:0]       eth_in,
-    output            t_complete
+    output            t_complete,
+    input             b_end
 );
 
 wire clk_20m;
@@ -369,7 +375,8 @@ eth_frame eth_frame_0
     .Tx_w       ( Tx_w          ),
     .mem_rd     ( mem_rd        ),
     .eth_in     ( eth_in        ),
-    .t_complete ( t_complete    )
+    .t_complete ( t_complete    ),
+    .b_end      ( b_end         )
 );
 
 endmodule
@@ -383,7 +390,8 @@ module eth_frame
 	output	     	  Tx_w,
     output  reg       mem_rd,
     input [7:0]       eth_in,
-    output  reg       t_complete
+    output  reg       t_complete,
+    input             b_end
 );
 
 localparam eth_frame_length = 'd128 ;
@@ -446,7 +454,7 @@ begin
                     addr         <= addr + 1'b1 ;
                     eth_data_reg <= eth_in;
                 end
-                if( (addr == addr_max) && (count == 3'h7) )
+                if( b_end )
                 begin
                     addr    <= addr_zero ;
                     count   <= 3'd0 ;

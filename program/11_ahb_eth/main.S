@@ -230,7 +230,7 @@ generate_eth_frame:
 			
 			# ETH Transmit
 			addiu   $t0, $t0, 4         # i += 4;
-			li		$v0, 0xff
+			li		$v0, 0x01
             sw      $v0, 0x0 ($t0)      # mem[i] = a;
 
 end:        b       end                 # while(1);
