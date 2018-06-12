@@ -68,25 +68,31 @@ module ahb_eth
     assign HRDATA    = pm_rd;
     assign HRESP     = 1'b0;
 
+    wire [7:0] com_out ;
+
     sm_eth eth
     (
         .eth_clk    ( eth_clk       ),
         .eth_rstn   ( HRESETn       ),
         .Txp        ( Txp           ),
         .Txn        ( Txn           ),
-        .Led_Tx     ( Led_Tx        )
+        .Led_Tx     ( Led_Tx        ),
+        .com_out    ( com_out       )
     );
 
     
     sm_eth_mem sm_eth_mem_0
     (
         .HCLK       ( HCLK          ),
+        .eth_clk    ( eth_clk       ),
         .HRESETn    ( HRESETn       ),
         .bSel       ( pm_valid      ),
         .bAddr      ( pm_addr       ),
         .bWrite     ( pm_we         ),
         .bWData     ( pm_wd         ),
-        .bRData     ( pm_rd         )
+        .bRData     ( pm_rd         ),
+        .com_out    ( com_out       ),
+        .addr_eth   ( 32'h55aa55aa  )
     );
 
 endmodule
@@ -128,6 +134,72 @@ endmodule
 
 endmodule*/
 
+module eth_mem #(
+    parameter data_width = 8,
+    parameter addr_width = 8
+) (
+    // Port A
+    input   wire                      a_clk,
+    input   wire                      a_wr,
+    input   wire    [data_width-1:0]  a_din,
+    
+    // Port B
+    input   wire                      b_clk,
+    input   wire                      b_rd,
+    output  reg     [data_width-1:0]  b_dout,
+    output  reg                       b_end
+);
+reg [addr_width-1:0] addr_count;
+reg [addr_width-1:0] b_addr ;
+reg [addr_width-1:0] a_addr ;
+// Shared memory
+reg [data_width-1:0] mem [(2**addr_width)-1:0];
+ 
+// Port A
+always @(posedge a_clk) begin
+    if(a_wr) begin
+        a_addr <= a_addr + 1'b1;
+        if(a_addr > addr_count)
+            a_addr <= 8'h08;
+        mem[a_addr] <= a_din;
+        addr_count <= addr_count + 1'b1;
+    end
+end
+ 
+// Port B
+always @(posedge b_clk) begin
+    if( b_rd )
+    begin
+        b_end <= 1'b0 ;
+        b_addr <= b_addr + 1'b1;
+        if (b_addr == addr_count)
+        begin
+            b_addr <= 8'h0;
+            b_end <= 1'b1 ;
+        end
+        b_dout <= mem[b_addr];
+    end
+end
+
+initial
+    begin
+        b_end = 1'b0;
+        addr_count = 8'h8;
+        b_addr = 1'b0 ;
+        a_addr = 8'h8;
+        $readmemh("../eth_frame.hex",mem) ;
+        mem[0] = 8'h55;
+        mem[1] = 8'h55;
+        mem[2] = 8'h55;
+        mem[3] = 8'h55;
+        mem[4] = 8'h55;
+        mem[5] = 8'h55;
+        mem[6] = 8'h55;
+        mem[7] = 8'hD5;
+    end
+ 
+endmodule
+
 
 module sm_eth_mem
 (
@@ -137,22 +209,24 @@ module sm_eth_mem
     input      [31:0] bAddr,
     input             bWrite,
     input      [31:0] bWData,
-    output     [31:0] bRData
+    output     [31:0] bRData,
+    output     [7:0]  com_out,
+    input             eth_clk,
+    output     [7:0]  data_out,
+    input      [31:0] addr_eth
 );
     reg        c_d;
-    reg  [7:0] eth_mem [127:0];
     reg  [7:0] com_reg ;
     wire mem_wr;
     wire reg_wr;
 
-    assign mem_wr = bWrite & ( ~ c_d ) & bSel ;
-    assign reg_wr = bWrite & (   c_d ) & bSel ;
-    assign bRData = c_d ? eth_mem[ bAddr ] : com_reg ;
+    assign com_out = com_reg ; 
+    assign mem_wr = bWrite & (   c_d ) & bSel ;
+    assign reg_wr = bWrite & ( ~ c_d ) & bSel ;
+    assign bRData = com_reg ;
 
     always @ ( posedge HCLK )
     begin
-        if ( mem_wr )
-            eth_mem[ bAddr[8:2] ] <= bWData[7:0] ;
         if ( reg_wr )
             com_reg <= bWData[7:0] ;
     end
@@ -163,12 +237,29 @@ module sm_eth_mem
             `SM_ETH_REG_COM   : c_d = 1'b0 ;
             `SM_ETH_REG_DATA  : c_d = 1'b1 ;
         endcase
+
+    eth_mem 
+    #(
+        .data_width(8),
+        .addr_width(8)
+    ) 
+    eth_mem_0
+    (
+    // Port A
+        .a_clk  ( HCLK          ),
+        .a_wr   ( mem_wr        ),
+        .a_din  ( bWData[7:0]   ),    
+    // Port B
+        .b_clk  ( eth_clk       ),
+        .b_rd   ( 1'b0          ),
+        .b_dout ( data_out      ),
+        .b_end  (               )
+    );
     
     initial
     begin
         com_reg = 8'h00 ;
         c_d = 1'b0 ;
-        $readmemh("../eth_frame.hex",eth_mem) ;
     end
 
 endmodule
@@ -184,7 +275,8 @@ module sm_eth
     output reg [31:0] bRData,*/
     output            Txp,
     output            Txn,
-    output            Led_Tx
+    output            Led_Tx,
+    input [7:0]             com_out
 );
 
 wire clk_20m;
@@ -225,7 +317,7 @@ nlp nlp_0
 
 eth_frame eth_frame_0
 (
-    .transmit   ( go            ),
+    .transmit   ( com_out[0]    ),
     .clk        ( clk_20m       ),
     .rst_n      ( eth_rstn      ),
     .eth_data_s ( eth_data_s    ),
