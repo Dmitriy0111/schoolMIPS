@@ -67,6 +67,8 @@ module ahb_eth
     assign HREADYOUT = ~hz_raw;
     assign HRDATA    = pm_rd;
     assign HRESP     = 1'b0;
+    wire mem_rd;
+    wire [7:0] mem2eth;
 
     wire [7:0] com_out ;
 
@@ -77,7 +79,9 @@ module ahb_eth
         .Txp        ( Txp           ),
         .Txn        ( Txn           ),
         .Led_Tx     ( Led_Tx        ),
-        .com_out    ( com_out       )
+        .com_out    ( com_out       ),
+        .mem_rd     ( mem_rd        ),
+        .eth_in     ( mem2eth       )
     );
 
     
@@ -92,47 +96,12 @@ module ahb_eth
         .bWData     ( pm_wd         ),
         .bRData     ( pm_rd         ),
         .com_out    ( com_out       ),
-        .addr_eth   ( 32'h55aa55aa  )
+        .mem_rd     ( mem_rd        ),
+        .data_out   ( mem2eth       )
     );
 
 endmodule
 
-
-/*module sm_gpio
-(
-    //bus side
-    input             clk,
-    input             rst_n,
-    input             bSel,
-    input      [31:0] bAddr,
-    input             bWrite,
-    input      [31:0] bWData,
-    output reg [31:0] bRData,
-
-    //pin side
-    input  [`SM_GPIO_WIDTH - 1:0] gpioInput,
-    output [`SM_GPIO_WIDTH - 1:0] gpioOutput
-);
-    wire   [`SM_GPIO_WIDTH - 1:0] gpioIn;    // debounced input signals
-    wire                          gpioOutWe; // output Pin value write enable
-    wire   [`SM_GPIO_WIDTH - 1:0] gpioOut;   // output Pin next value
-
-    assign gpioOut   = bWData [`SM_GPIO_WIDTH - 1:0];
-    assign gpioOutWe = bSel & bWrite & (bAddr[3:0] == `SM_GPIO_REG_OUTPUT);
-
-    sm_debouncer   #(`SM_GPIO_WIDTH) debounce(clk, gpioInput, gpioIn);
-    sm_register_we #(`SM_GPIO_WIDTH) r_output(clk, rst_n, gpioOutWe, gpioOut, gpioOutput);
-
-    localparam BLANK_WIDTH = 32 - `SM_GPIO_WIDTH;
-
-    always @ (*)
-        case(bAddr[3:0])
-            default              : bRData = { { BLANK_WIDTH {1'b0}}, gpioIn  };
-            `SM_GPIO_REG_INPUT   : bRData = { { BLANK_WIDTH {1'b0}}, gpioIn  };
-            `SM_GPIO_REG_OUTPUT  : bRData = { { BLANK_WIDTH {1'b0}}, gpioOut };
-        endcase
-
-endmodule*/
 
 module eth_mem #(
     parameter data_width = 8,
@@ -146,7 +115,7 @@ module eth_mem #(
     // Port B
     input   wire                      b_clk,
     input   wire                      b_rd,
-    output  reg     [data_width-1:0]  b_dout,
+    output       [data_width-1:0]  b_dout,
     output  reg                       b_end
 );
 reg [addr_width-1:0] addr_count;
@@ -177,15 +146,15 @@ always @(posedge b_clk) begin
             b_addr <= 8'h0;
             b_end <= 1'b1 ;
         end
-        b_dout <= mem[b_addr];
     end
+    
 end
-
+    assign b_dout = mem[b_addr];
 initial
     begin
         b_end = 1'b0;
         addr_count = 8'h8;
-        b_addr = 1'b0 ;
+        b_addr = 8'h0;
         a_addr = 8'h8;
         $readmemh("../eth_frame.hex",mem) ;
         mem[0] = 8'h55;
@@ -213,7 +182,7 @@ module sm_eth_mem
     output     [7:0]  com_out,
     input             eth_clk,
     output     [7:0]  data_out,
-    input      [31:0] addr_eth
+    input             mem_rd
 );
     reg        c_d;
     reg  [7:0] com_reg ;
@@ -251,7 +220,7 @@ module sm_eth_mem
         .a_din  ( bWData[7:0]   ),    
     // Port B
         .b_clk  ( eth_clk       ),
-        .b_rd   ( 1'b0          ),
+        .b_rd   ( mem_rd        ),
         .b_dout ( data_out      ),
         .b_end  (               )
     );
@@ -268,15 +237,12 @@ module sm_eth
 (
     input             eth_clk,
     input             eth_rstn,
-    /*input             bSel,
-    input      [31:0] bAddr,
-    input             bWrite,
-    input      [31:0] bWData,
-    output reg [31:0] bRData,*/
     output            Txp,
     output            Txn,
     output            Led_Tx,
-    input [7:0]             com_out
+    input [7:0]       com_out,
+    output            mem_rd,
+    input [7:0]       eth_in
 );
 
 wire clk_20m;
@@ -321,18 +287,22 @@ eth_frame eth_frame_0
     .clk        ( clk_20m       ),
     .rst_n      ( eth_rstn      ),
     .eth_data_s ( eth_data_s    ),
-    .Tx_w       ( Tx_w          )
+    .Tx_w       ( Tx_w          ),
+    .mem_rd     ( mem_rd        ),
+    .eth_in     ( eth_in        )
 );
 
 endmodule
 
 module eth_frame
 (
-    input        transmit,
-    input        clk,
-    input        rst_n,
-    output       eth_data_s,
-	output		 Tx_w
+    input             transmit,
+    input             clk,
+    input             rst_n,
+    output            eth_data_s,
+	output	     	  Tx_w,
+    output  reg       mem_rd,
+    input [7:0]       eth_in
 );
 
 localparam eth_frame_length = 'd128 ;
@@ -351,7 +321,7 @@ reg   										Tx		;
 reg   										Tx_idle ;
 
 assign Tx_w			= Tx | Tx_idle;
-assign eth_data_s = ( ~ ( manch ^ eth_data_reg[count] ) ) | Tx_idle ;
+assign eth_data_s = ( ~ ( manch ^ eth_in[count] ) ) | Tx_idle ;
 
 localparam  WAIS_S      = 2'b00 ,
             BROADCAST_S = 2'b01 ,
@@ -373,22 +343,25 @@ begin
             begin
                 Tx      <= 1'b0 ;
                 manch   <= 1'b0 ;
-					 Tx_idle <= 1'b0 ;
+				Tx_idle <= 1'b0 ;
                 if( transmit == 1'b1 )
                 begin
                     state        <= BROADCAST_S ;
-                    eth_data_reg <= eth_data[0] ;
+                    eth_data_reg <= eth_in ;
                     Tx           <=1'b1 ;
+                    //mem_rd <= 1'b1;
                 end
             end
         BROADCAST_S:
             begin
+                mem_rd <= 1'b0;
                 count <= count + manch ;
                 manch <= ~ manch ;
-                if( (count == 3'h7) && ( manch ) )
+                if( (count == 3'h7) && ( ~ manch ) )
                 begin
+                    mem_rd       <= 1'b1;
                     addr         <= addr + 1'b1 ;
-                    eth_data_reg <= eth_data[addr + 1'b1];
+                    eth_data_reg <= eth_in;
                 end
                 if( (addr == addr_max) && (count == 3'h7) )
                 begin
@@ -397,11 +370,12 @@ begin
                     state   <= TP_IDLE ;
                     Tx_idle <= 1'b1 ;
                     Tx      <= 1'b0 ;
-						  eth_data_reg <= 8'b0;
+					eth_data_reg <= 8'b0;
                 end
             end
         TP_IDLE:
             begin
+                mem_rd <= 1'b0;
                 count <= count + 1'b1 ;
                 if( count == 3'h5 )
                 begin
@@ -415,6 +389,7 @@ end
 
 initial
 begin
+    mem_rd       = 1'b0 ;
     state        = WAIS_S ;
     addr         = addr_zero ;
     count        = 3'd0 ;
