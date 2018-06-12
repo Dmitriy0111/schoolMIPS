@@ -114,11 +114,13 @@ module eth_mem #(
     input   wire                      a_clk,
     input   wire                      a_wr,
     input   wire    [data_width-1:0]  a_din,
+    input   wire                      a_clr,
+    output  reg                       a_clr_com,
     
     // Port B
     input   wire                      b_clk,
     input   wire                      b_rd,
-    output       [data_width-1:0]  b_dout,
+    output       [data_width-1:0]     b_dout,
     output  reg                       b_end
 );
 reg [addr_width-1:0] addr_count;
@@ -129,6 +131,12 @@ reg [data_width-1:0] mem [(2**addr_width)-1:0];
  
 // Port A
 always @(posedge a_clk) begin
+    a_clr_com <= 1'b0 ;
+    if( a_clr )
+    begin
+        a_addr <= 8'h08 ;
+        a_clr_com <= 1'b1 ;
+    end
     if(a_wr) begin
         a_addr <= a_addr + 1'b1;
         if(a_addr > addr_count)
@@ -155,6 +163,7 @@ end
     assign b_dout = mem[b_addr];
 initial
     begin
+        a_clr_com = 1'b0 ;
         b_end = 1'b0;
         addr_count = 8'h8;
         b_addr = 8'h0;
@@ -245,18 +254,20 @@ module sm_eth_mem
     wire mem_wr;
     wire reg_wr;
 
-    //assign com_out = com_reg ; 
+    wire [7:0]      q_out;
+    assign com_out = q_out ; 
+
     assign mem_wr = bWrite & (   c_d ) & bSel ;
     assign reg_wr = bWrite & ( ~ c_d ) & bSel ;
-    assign bRData = com_out ;
+    assign bRData = q_out ;
 
     p_reg p_reg_0
     (
         .clk    ( HCLK        ),
-        .rst    ( {7'h7f, ~ t_complete }       ),
+        .rst    ( {6'h3f, ~a_clr_com, ~ t_complete }       ),
         .data   ( bWData[7:0] ),
         .wr     ( reg_wr      ),
-        .q      ( com_out     )
+        .q      ( q_out       )
     );
 
     /*always @ ( posedge HCLK )
@@ -280,14 +291,16 @@ module sm_eth_mem
     eth_mem_0
     (
     // Port A
-        .a_clk  ( HCLK          ),
-        .a_wr   ( mem_wr        ),
-        .a_din  ( bWData[7:0]   ),    
+        .a_clk      ( HCLK          ),
+        .a_wr       ( mem_wr        ),
+        .a_din      ( bWData[7:0]   ),  
+        .a_clr      ( com_out[1]    ),  //TX_FLUSH  
+        .a_clr_com  ( a_clr_com     ),
     // Port B
-        .b_clk  ( eth_clk       ),
-        .b_rd   ( mem_rd        ),
-        .b_dout ( data_out      ),
-        .b_end  (               )
+        .b_clk      ( eth_clk       ),
+        .b_rd       ( mem_rd        ),
+        .b_dout     ( data_out      ),
+        .b_end      (               )
     );
     
     initial
