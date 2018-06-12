@@ -227,7 +227,11 @@ generate_eth_frame:
             sw      $v0, 0x0 ($t0)      # mem[i] = a;
             li		$v0, ETH_PAYLOAD_17
             sw      $v0, 0x0 ($t0)      # mem[i] = a;
-
+			
+			# ETH Transmit
+			addiu   $t0, $t0, 4         # i += 4;
+			li		$v0, 0xff
+            sw      $v0, 0x0 ($t0)      # mem[i] = a;
 
 end:        b       end                 # while(1);
 
