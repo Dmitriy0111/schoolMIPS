@@ -232,6 +232,24 @@ generate_eth_frame:
 			addiu   $t0, $t0, 4         # i += 4;
 			li		$v0, 0x01
             sw      $v0, 0x0 ($t0)      # mem[i] = a;
+            
+            # Waiting for the end of the transfer
+            li      $v1, 0x00
+wait1:
+            lw      $v0, 0x0 ($t0)      # a = mem[i];
+            bne     $v0, $v1, wait1      # if (i != max) goto write
+            li		$v0, 0x01
+            sw      $v0, 0x0 ($t0)      # mem[i] = a;
+
+            # Waiting for the end of the transfer
+            li      $v1, 0x00
+wait2:
+            lw      $v0, 0x0 ($t0)      # a = mem[i];
+            bne     $v0, $v1, wait2      # if (i != max) goto write
+            li		$v0, 0x02
+            sw      $v0, 0x0 ($t0)      # mem[i] = a;
+            li		$v0, 0x01
+            sw      $v0, 0x0 ($t0)      # mem[i] = a;
 
 end:        b       end                 # while(1);
 
