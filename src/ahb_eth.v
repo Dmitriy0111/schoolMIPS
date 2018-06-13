@@ -490,12 +490,13 @@ begin
                 begin
                     divider <= 2'b0;
                     count <= count + 1'b1 ;
-                    t_complete <= 1'b1 ;
+                    
                     if( count == 3'h5 )
                     begin
                         Tx_idle <= 1'b0 ;
                         count   <= 3'd0 ;
                         state   <= WAIS_S ;
+                        t_complete <= 1'b1 ;
                     end
                 end
             end

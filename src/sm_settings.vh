@@ -11,7 +11,7 @@
 // settings START
 
 // instruction memory size (in words)
-`define SM_CONFIG_ROM_SIZE  128
+`define SM_CONFIG_ROM_SIZE  256
 
 // default exception handler addr
 `define SM_CONFIG_EXCEPTION_HANDLER_ADDR    32'h100
