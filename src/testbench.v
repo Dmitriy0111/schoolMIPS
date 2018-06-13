@@ -7,7 +7,7 @@
  * Copyright(c) 2017-2018 Stanislav Zhelnio
  */ 
 
-`timescale 1 ns / 100 ps
+`timescale 10 ps / 10 ps
 
 `include "sm_settings.vh"
 `include "sm_cpu.vh"
@@ -19,7 +19,7 @@
 module sm_testbench;
 
     // simulation options
-    parameter Tt     = 20;
+    parameter Tt     = 2000;
 
     reg         clk;
     reg         rst_n;
@@ -68,7 +68,7 @@ module sm_testbench;
 `endif
 
     // simulation init
-    parameter T_eth     = 50;
+    parameter T_eth     = 1250;
     initial begin
         eth_clk = 0;
         forever eth_clk = #(T_eth/2) ~ eth_clk ;

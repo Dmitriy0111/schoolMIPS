@@ -156,10 +156,14 @@ always @(posedge b_clk) begin
     begin
         b_end <= 1'b0 ;
         b_addr <= b_addr + 1'b1;
-        if (b_addr == addr_count)
+        if (b_addr == addr_count )
         begin
             b_addr <= 8'h0;
-            b_end <= 1'b1 ;
+            //b_end <= 1'b1 ;
+        end
+        if (b_addr == addr_count -1 )
+        begin
+            b_end <= 1'b1;
         end
     end
     
@@ -398,6 +402,8 @@ localparam eth_frame_length = 'd128 ;
 localparam addr_max         = {$clog2(eth_frame_length){1'b1}} ;
 localparam addr_zero        = {$clog2(eth_frame_length){1'b0}} ;
 
+reg [1:0]   divider;
+
 //assign TxD = eth_data_s | Tx_idle;
 
 reg [7:0]                           eth_data    [ eth_frame_length-1 : 0 ] ;
@@ -410,7 +416,7 @@ reg   										Tx		;
 reg   										Tx_idle ;
 
 assign Tx_w			= Tx | Tx_idle;
-assign eth_data_s = ( ~ ( manch ^ eth_in[count] ) ) | Tx_idle ;
+assign eth_data_s = ( ~ ( manch ^ eth_data_reg[count] ) ) | Tx_idle ;
 
 localparam  WAIS_S      = 2'b00 ,
             BROADCAST_S = 2'b01 ,
@@ -426,6 +432,7 @@ begin
             Tx      <= 1'b0 ;
             manch   <= 1'b0 ;
             t_complete <= 1'b0 ;
+            divider <= 2'b0;
         end
     else
         case( state )
@@ -435,46 +442,61 @@ begin
                 manch   <= 1'b0 ;
 				Tx_idle <= 1'b0 ;
                 t_complete <= 1'b0 ;
+                divider <= 2'b0;
                 if( transmit == 1'b1 )
                 begin
                     state        <= BROADCAST_S ;
                     eth_data_reg <= eth_in ;
                     Tx           <=1'b1 ;
+                    mem_rd       <= 1'b1;
+                    
                     //mem_rd <= 1'b1;
                 end
             end
         BROADCAST_S:
             begin
+                divider <= divider + 1'b1;
                 mem_rd <= 1'b0;
-                count <= count + manch ;
-                manch <= ~ manch ;
-                if( (count == 3'h7) && ( ~ manch ) )
+                if( divider == 2'b11 )
                 begin
-                    mem_rd       <= 1'b1;
-                    addr         <= addr + 1'b1 ;
-                    eth_data_reg <= eth_in;
-                end
-                if( b_end )
-                begin
-                    addr    <= addr_zero ;
-                    count   <= 3'd0 ;
-                    state   <= TP_IDLE ;
-                    Tx_idle <= 1'b1 ;
-                    Tx      <= 1'b0 ;
-					eth_data_reg <= 8'b0;
+                    divider <= 2'b0;
+                
+                    count <= count + manch ;
+                    manch <= ~ manch ;
+                    if( (count == 3'h7) && ( manch ) )
+                    begin
+                        mem_rd       <= 1'b1;
+                        addr         <= addr + 1'b1 ;
+                        eth_data_reg <= eth_in;
+                    end
+                
+                    if( (count == 3'h7) && ( b_end ) && ( manch ) )
+                    begin
+                        addr    <= addr_zero ;
+                        count   <= 3'd0 ;
+                        state   <= TP_IDLE ;
+                        Tx_idle <= 1'b1 ;
+                        Tx      <= 1'b0 ;
+				    	eth_data_reg <= 8'b0;
+                        divider <= 2'b0 ;
+                    end
                 end
             end
         TP_IDLE:
             begin
                 mem_rd <= 1'b0;
-                count <= count + 1'b1 ;
-                t_complete <= 1'b1 ;
-                if( count == 3'h5 )
+                divider <= divider + 1'b1 ;
+                if (divider == 2'b11 )
                 begin
-                    Tx_idle <= 1'b0 ;
-                    count   <= 3'd0 ;
-                    state   <= WAIS_S ;
-                    
+                    divider <= 2'b0;
+                    count <= count + 1'b1 ;
+                    t_complete <= 1'b1 ;
+                    if( count == 3'h5 )
+                    begin
+                        Tx_idle <= 1'b0 ;
+                        count   <= 3'd0 ;
+                        state   <= WAIS_S ;
+                    end
                 end
             end
         endcase
@@ -482,6 +504,7 @@ end
 
 initial
 begin
+    divider      = 2'b0 ;
     mem_rd       = 1'b0 ;
     state        = WAIS_S ;
     addr         = addr_zero ;
