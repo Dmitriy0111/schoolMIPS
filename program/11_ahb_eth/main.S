@@ -241,6 +241,9 @@ wait1:
             li		$v0, 0x01
             sw      $v0, 0x0 ($t0)      # mem[i] = a;
 
+            b       wait1                 # while(1);
+
+
             # Waiting for the end of the transfer
             li      $v1, 0x00
 wait2:

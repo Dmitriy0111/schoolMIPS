@@ -73,37 +73,40 @@ module ahb_eth
     wire [7:0] com_out ;
     wire       t_complete;
     wire       b_end;
+    wire [7:0] addr_count_out;
 
     sm_eth eth
     (
-        .eth_clk    ( eth_clk       ),
-        .eth_rstn   ( HRESETn       ),
-        .Txp        ( Txp           ),
-        .Txn        ( Txn           ),
-        .Led_Tx     ( Led_Tx        ),
-        .com_out    ( com_out       ),
-        .mem_rd     ( mem_rd        ),
-        .eth_in     ( mem2eth       ),
-        .t_complete ( t_complete    ),
-        .b_end      ( b_end         )
+        .eth_clk        ( eth_clk        ),
+        .eth_rstn       ( HRESETn        ),
+        .Txp            ( Txp            ),
+        .Txn            ( Txn            ),
+        .Led_Tx         ( Led_Tx         ),
+        .com_out        ( com_out        ),
+        .mem_rd         ( mem_rd         ),
+        .eth_in         ( mem2eth        ),
+        .t_complete     ( t_complete     ),
+        .b_end          ( b_end          ),
+        .addr_count_out ( addr_count_out )
     );
 
     
     sm_eth_mem sm_eth_mem_0
     (
-        .HCLK       ( HCLK          ),
-        .eth_clk    ( eth_clk       ),
-        .HRESETn    ( HRESETn       ),
-        .bSel       ( pm_valid      ),
-        .bAddr      ( pm_addr       ),
-        .bWrite     ( pm_we         ),
-        .bWData     ( pm_wd         ),
-        .bRData     ( pm_rd         ),
-        .com_out    ( com_out       ),
-        .mem_rd     ( mem_rd        ),
-        .data_out   ( mem2eth       ),
-        .t_complete ( t_complete    ),
-        .b_end      ( b_end         )
+        .HCLK           ( HCLK           ),
+        .eth_clk        ( eth_clk        ),
+        .HRESETn        ( HRESETn        ),
+        .bSel           ( pm_valid       ),
+        .bAddr          ( pm_addr        ),
+        .bWrite         ( pm_we          ),
+        .bWData         ( pm_wd          ),
+        .bRData         ( pm_rd          ),
+        .com_out        ( com_out        ),
+        .mem_rd         ( mem_rd         ),
+        .data_out       ( mem2eth        ),
+        .t_complete     ( t_complete     ),
+        .b_end          ( b_end          ),
+        .addr_count_out ( addr_count_out )
     );
 
 endmodule
@@ -124,13 +127,16 @@ module eth_mem #(
     input   wire                      b_clk,
     input   wire                      b_rd,
     output       [data_width-1:0]     b_dout,
-    output  reg                       b_end
+    output  reg                       b_end,
+    output       [addr_width-1:0]     addr_count_out
 );
 reg [addr_width-1:0] addr_count;
 reg [addr_width-1:0] b_addr ;
 reg [addr_width-1:0] a_addr ;
 // Shared memory
 reg [data_width-1:0] mem [(2**addr_width)-1:0];
+
+assign addr_count_out = addr_count ;
  
 // Port A
 always @(posedge a_clk) begin
@@ -256,7 +262,8 @@ module sm_eth_mem
     output     [7:0]  data_out,
     input             mem_rd,
     input             t_complete,
-    output            b_end
+    output            b_end,
+    output     [7:0]  addr_count_out
 );
     reg        c_d;
     reg  [7:0] com_reg ;
@@ -300,16 +307,17 @@ module sm_eth_mem
     eth_mem_0
     (
     // Port A
-        .a_clk      ( HCLK          ),
-        .a_wr       ( mem_wr        ),
-        .a_din      ( bWData[7:0]   ),  
-        .a_clr      ( com_out[1]    ),  //TX_FLUSH  
-        .a_clr_com  ( a_clr_com     ),
+        .a_clk          ( HCLK           ),
+        .a_wr           ( mem_wr         ),
+        .a_din          ( bWData[7:0]    ),  
+        .a_clr          ( com_out[1]     ),  //TX_FLUSH  
+        .a_clr_com      ( a_clr_com      ),
     // Port B
-        .b_clk      ( eth_clk       ),
-        .b_rd       ( mem_rd        ),
-        .b_dout     ( data_out      ),
-        .b_end      ( b_end         )
+        .b_clk          ( eth_clk        ),
+        .b_rd           ( mem_rd         ),
+        .b_dout         ( data_out       ),
+        .b_end          ( b_end          ),
+        .addr_count_out ( addr_count_out )
     );
     
     initial
@@ -331,7 +339,8 @@ module sm_eth
     output            mem_rd,
     input [7:0]       eth_in,
     output            t_complete,
-    input             b_end
+    input             b_end,
+    input [7:0]       addr_count_out
 );
 
 wire clk_20m;
@@ -362,17 +371,21 @@ assign Txn = Txn_nlp | Txn_TxD ;
 assign Txp = Txp_nlp | Txp_TxD ;
 
 assign Led_Tx = ~ ( Tx_w ) ;
+wire [31:0]     c_out;
+wire transmit;
+assign transmit = com_out[0] & ( c_out[31:2] > ( addr_count_out + 1000 ) ) & ( ( (1440000 >> 2) - c_out[31:2] ) > ( {addr_count_out,3'b0} + 1000 ) );
 
 nlp nlp_0
     (
         .clk      ( clk_20m   ),
         .go       ( go        ),
-        .Tx       ( Tx_nlp    )
+        .Tx       ( Tx_nlp    ),
+        .c_out    ( c_out     )
     );
 
 eth_frame eth_frame_0
 (
-    .transmit   ( com_out[0]    ),
+    .transmit   ( transmit      ),
     .clk        ( clk_20m       ),
     .rst_n      ( eth_rstn      ),
     .eth_data_s ( eth_data_s    ),
@@ -523,28 +536,26 @@ module nlp
 (
     input               clk,
     output  reg         go,
-    output  reg         Tx
+    output  reg         Tx,
+    output  [31:0]      c_out
 );
 
 reg [31:0]  counter ;
 
+assign c_out = counter ;
+
 always @(posedge clk) 
 begin
     counter <= counter + 1'b1 ;
-    if ( counter == 160000*2 )
+    if ( counter == 0 )
         Tx <= 1'b1 ;
-    if ( counter == 160000*2 + 1*2)
+    if ( counter == 8)
     begin
         Tx <= 1'b0 ;
     end 
-    if (counter == 160000*2+5*2+5*2+30000)
-    begin
-        go <= 1'b1 ;
-    end
-    if (counter == 160000*2+5*2+5*2+5*2+30000)
+    if (counter == 1440000)
     begin
         counter <= 32'h00000 ;
-        go <= 1'b0 ;
     end
 end
 
